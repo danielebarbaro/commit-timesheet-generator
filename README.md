@@ -9,6 +9,7 @@ Transform your Git commits into beautifully formatted monthly timesheets. Perfec
 ## Features
 
 - ✅ **Automatic time tracking** from commit timestamps
+- ⏱️ **Estimated worked hours** per day and per month
 - 📊 **Daily activity summaries** with time ranges
 - 🏷️ **Intelligent commit categorization** (features, fixes, refactoring, etc.)
 - 📈 **Monthly macro-activity reports** with commit counts
@@ -55,14 +56,29 @@ This generates timesheets for the current year using your Git author name.
 
 ## Output
 
-The script creates a `timesheets/` directory with one Markdown file per month:
+The script creates a `timesheets/` directory with one Markdown file per month, plus a yearly hours report:
 
 ```
 timesheets/
 ├── 2025-01-January.md
 ├── 2025-02-February.md
-└── 2025-03-March.md
+├── 2025-03-March.md
+└── 2025-hours.md
 ```
+
+### Estimated Hours
+
+`YYYY-hours.md` lists every working day with estimated hours, commit count and time range, followed by monthly totals and a yearly total.
+
+```markdown
+| Day | Hours | Commits | Time range |
+|-----|------:|--------:|------------|
+| Mon 2025-06-09 | 7.8 | 12 | 09:15 - 18:30 |
+
+**Total**: 141.2 hours over 28 working days
+```
+
+Hours are estimated from commit timestamps. Commits less than 120 minutes apart belong to the same work session, and the time between them counts as work. Each session adds 30 minutes for the work done before its first commit. Both values are set by `SESSION_GAP_MINUTES` and `SESSION_LEAD_MINUTES` at the top of the script.
 
 ### Example Output
 
@@ -170,6 +186,9 @@ The script is easy to customize:
 
 - Only tracks committed work (uncommitted changes are not included)
 - Time ranges based on first/last commit (breaks not tracked)
+- Hours are an estimate. Work without commits (meetings, analysis, review) is not counted, and breaks shorter than the session gap count as work
+- A session that crosses midnight is split between the two days
+- Only commits reachable from the current branch are counted
 - Requires Git repository with commit history
 - Month/day names follow system locale (typically English)
 
