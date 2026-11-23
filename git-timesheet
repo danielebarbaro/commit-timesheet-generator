@@ -12,6 +12,11 @@ AUTHOR="${1:-$(git config user.name)}"
 YEAR="${2:-$(date +%Y)}"
 OUTPUT_DIR="timesheets"
 
+# Hours estimation: commits closer than the gap belong to the same work session.
+# Each session gets a fixed lead time for the work done before its first commit.
+SESSION_GAP_MINUTES=120
+SESSION_LEAD_MINUTES=30
+
 print_header() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════${NC}"
     echo -e "${BLUE}  Git Timesheet Generator${NC}"
@@ -164,6 +169,66 @@ EOF
     echo -e "${GREEN}   ✅ File created: ${output_file}${NC}"
 }
 
+generate_hours_report() {
+    local output_file="${OUTPUT_DIR}/${YEAR}-hours.md"
+
+    echo -e "${YELLOW}⏱️  Estimating worked hours for ${YEAR}...${NC}"
+
+    git log --author="$AUTHOR" \
+        --after="${YEAR}-01-01 00:00:00" \
+        --before="$((YEAR + 1))-01-01 00:00:00" \
+        --pretty=tformat:"%at %ad" \
+        --date=format:"%Y-%m-%d %a %H:%M" | sort -n | awk \
+        -v gap="$((SESSION_GAP_MINUTES * 60))" \
+        -v lead="$((SESSION_LEAD_MINUTES * 60))" \
+        -v gap_min="$SESSION_GAP_MINUTES" \
+        -v lead_min="$SESSION_LEAD_MINUTES" \
+        -v year="$YEAR" \
+        -v author="$AUTHOR" '
+        {
+            ts = $1; day = $2; month = substr(day, 1, 7)
+
+            if (!(day in commits)) {
+                days[++day_count] = day
+                weekday[day] = $3
+                first[day] = $4
+                if (!(month in month_days)) months[++month_count] = month
+                month_days[month]++
+            }
+
+            # A session crossing midnight is split between the two days.
+            elapsed = (NR == 1 || ts - prev > gap) ? lead : ts - prev
+
+            secs[day] += elapsed
+            month_secs[month] += elapsed
+            total += elapsed
+            commits[day]++
+            last[day] = $4
+            prev = ts
+        }
+        END {
+            printf "# Estimated Hours %s\n**Developer**: %s\n\n---\n\n", year, author
+            print "| Day | Hours | Commits | Time range |"
+            print "|-----|------:|--------:|------------|"
+            for (i = 1; i <= day_count; i++) {
+                d = days[i]
+                printf "| %s %s | %.1f | %d | %s - %s |\n", weekday[d], d, secs[d] / 3600, commits[d], first[d], last[d]
+            }
+            print "\n## Monthly Totals\n"
+            print "| Month | Hours | Working days |"
+            print "|-------|------:|-------------:|"
+            for (i = 1; i <= month_count; i++) {
+                m = months[i]
+                printf "| %s | %.1f | %d |\n", m, month_secs[m] / 3600, month_days[m]
+            }
+            printf "\n**Total**: %.1f hours over %d working days\n\n", total / 3600, day_count
+            printf "_Estimate based on commit timestamps: commits less than %d minutes apart count as one session, and each session adds %d minutes for the work before its first commit._\n", gap_min, lead_min
+        }' > "$output_file"
+
+    echo -e "${GREEN}   ✅ File created: ${output_file}${NC}"
+    echo -e "${GREEN}   $(grep '^\*\*Total\*\*' "$output_file" | tr -d '*')${NC}"
+}
+
 main() {
     if [ ! -d ".git" ]; then
         echo -e "${RED}❌ Error: Not a Git repository${NC}"
@@ -197,6 +262,8 @@ main() {
     while IFS= read -r month; do
         generate_month_timesheet "$month"
     done <<< "$months"
+
+    generate_hours_report
 
     echo ""
     echo -e "${GREEN}═══════════════════════════════════════════════════════════${NC}"
